@@ -5,8 +5,8 @@
  * structure: p/ (posts), category/ (categories), users/ (authors).
  *
  * How it works:
- *   - Reads p/index.js (window.PREPORTAL_POSTS = [...]) for the post list.
- *   - Falls back to probing p/<slug>.js files when no index exists.
+ *   - Discovers p/*.js from a local HTTP directory listing or the GitHub tree API.
+ *   - Falls back to a cached list, p/index.js, and finally probes.
  *   - Loads category/<slug>.js and users/<slug>.js the same way.
  *   - Builds a full search index, category counts and author index in memory.
  *   - No server, no build step, no manual index files — everything is generated
@@ -50,9 +50,8 @@
   }
 
   function base() {
-    var u = CFG.siteUrl || './';
-    if (isLocalHost() || !/^https?:/i.test(u)) return new URL('./', location.href).href;
-    return u.charAt(u.length - 1) === '/' ? u : u + '/';
+    // Content is published beside the site's HTML pages.
+    return new URL('./', location.href).href;
   }
 
   function abs(p) {
@@ -179,10 +178,11 @@
   /* ------------------------------------------------------------------ */
 
   function githubRepoInfo() {
+    var source = CFG.contentRepository || {};
     var media = CFG.media || {};
-    var owner = media.githubOwner || '';
-    var repo = media.githubRepo || '';
-    var branch = media.githubBranch || '';
+    var owner = source.owner || media.githubOwner || '';
+    var repo = source.repo || media.githubRepo || '';
+    var branch = source.branch || media.githubBranch || '';
 
     if (!owner || !repo) {
       try {
@@ -193,42 +193,115 @@
       } catch (e) { /* ignore */ }
     }
 
+    // A fork published as a GitHub Pages project uses its own repository.
+    // Custom domains retain the explicitly configured content repository.
+    var host = String(location.hostname || '').match(/^([a-z0-9-]+)\.github\.io$/i);
+    if (host && repo) {
+      var project = String(location.pathname || '').split('/')[1] || '';
+      if (project.toLowerCase() === repo.toLowerCase() ||
+          (!project && repo.toLowerCase() === (host[1] + '.github.io').toLowerCase())) {
+        owner = host[1];
+      }
+    }
+
     if (!owner || !repo) {
-      var m = String(CFG.siteUrl || '').match(/https?:\/\/([^.]+)\.github\.io\/([^\/]+)/i);
-      if (m) { owner = owner || m[1]; repo = repo || m[2]; }
+      var m = String(CFG.siteUrl || '').match(/^https?:\/\/([a-z0-9-]+)\.github\.io(?:\/([^/?#]+))?/i);
+      if (m) {
+        owner = owner || m[1];
+        repo = repo || m[2] || (m[1] + '.github.io');
+      }
     }
 
     return { owner: owner, repo: repo, branch: branch || 'main' };
+  }
+
+  // The same filename rules are used for local and published posts.
+  function isPostFilename(name) {
+    return /^[\w.-]+\.js$/.test(name) && name.charAt(0) !== '_' &&
+      name.charAt(0) !== '.' && name !== 'index.js' && name.indexOf('manifest') === -1;
+  }
+
+  function fromLocalDirectory() {
+    var name = 'local-directory';
+    var url = abs(POSTS_DIR.replace(/\/+$/, '') + '/');
+    function unavailable(detail) {
+      state.sources.push({ name: name, ok: false, count: 0, detail: detail });
+      return null;
+    }
+
+    if (!/^https?:$/.test(location.protocol)) return Promise.resolve(unavailable('HTTP server required'));
+    return fetchText(url).then(function (html) {
+      if (!html) return unavailable('directory unavailable');
+      try {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var dir = new URL(url);
+        // Recognize actual Python http.server, Apache and nginx autoindexes.
+        // A SPA fallback or ordinary index page is not an empty directory.
+        var headings = Array.prototype.map.call(doc.querySelectorAll('title, h1'), function (node) {
+          return node.textContent.trim();
+        });
+        var listing = headings.some(function (heading) {
+          var match = /^(?:Directory listing for|Index of)\s+(.+)$/i.exec(heading);
+          if (!match) return false;
+          var path = match[1].replace(/\/+$/, '');
+          return path === dir.pathname.replace(/\/+$/, '') ||
+            path === decodeURIComponent(dir.pathname).replace(/\/+$/, '');
+        });
+        if (!listing) return unavailable('directory listing disabled or unrecognized');
+
+        var list = [];
+        doc.querySelectorAll('a[href]').forEach(function (link) {
+          try {
+            var target = new URL(link.getAttribute('href'), dir);
+            if (target.origin !== dir.origin || target.search || target.hash ||
+                target.pathname.indexOf(dir.pathname) !== 0) return;
+            var filename = decodeURIComponent(target.pathname.slice(dir.pathname.length));
+            if (isPostFilename(filename)) list.push(filename.slice(0, -3));
+          } catch (e) { /* ignore malformed links */ }
+        });
+        list = dedupe(list).sort();
+        state.sources.push({ name: name, ok: true, count: list.length, detail: url });
+        return list;
+      } catch (e) {
+        return unavailable('directory listing parse error');
+      }
+    });
   }
 
   function fromGithub() {
     var info = githubRepoInfo();
     if (!info.owner || !info.repo) {
       state.sources.push({ name: 'github', ok: false, count: 0, detail: 'no repo info' });
-      return Promise.resolve([]);
+      return Promise.resolve(null);
     }
-    var api = 'https://api.github.com/repos/' + info.owner + '/' + info.repo + '/contents/' + POSTS_DIR +
-      '?ref=' + encodeURIComponent(info.branch);
-
+    // A complete tree can distinguish an empty folder from a failed scan.
+    var api = 'https://api.github.com/repos/' + encodeURIComponent(info.owner) + '/' +
+      encodeURIComponent(info.repo) + '/git/trees/' + encodeURIComponent(info.branch) + '?recursive=1';
+    var prefix = POSTS_DIR.replace(/\/+$/, '') + '/';
     return fetchText(api, 7000).then(function (text) {
       if (!text) {
         state.sources.push({ name: 'github', ok: false, count: 0, detail: 'no response' });
-        return [];
+        return null;
       }
       try {
-        var arr = JSON.parse(text);
-        if (!Array.isArray(arr)) {
-          state.sources.push({ name: 'github', ok: false, count: 0, detail: 'unexpected response' });
-          return [];
+        var result = JSON.parse(text);
+        if (!result || !Array.isArray(result.tree) || result.truncated) {
+          state.sources.push({ name: 'github', ok: false, count: 0, detail: 'incomplete tree' });
+          return null;
         }
-        var list = arr
-          .filter(function (f) { return f && f.type === 'file' && /\.js$/.test(f.name) && f.name.charAt(0) !== '_' && f.name.indexOf('manifest') === -1 && f.name !== 'index.js'; })
-          .map(function (f) { return f.name.replace(/\.js$/, ''); });
+        var list = result.tree.filter(function (entry) {
+          if (!entry || entry.type !== 'blob' || typeof entry.path !== 'string' ||
+              entry.path.indexOf(prefix) !== 0 || entry.mode === '120000') return false;
+          var name = entry.path.slice(prefix.length);
+          return isPostFilename(name);
+        }).map(function (entry) {
+          return entry.path.slice(prefix.length, -3);
+        });
         state.sources.push({ name: 'github', ok: true, count: list.length, detail: info.owner + '/' + info.repo });
         return list;
       } catch (e) {
         state.sources.push({ name: 'github', ok: false, count: 0, detail: 'parse error' });
-        return [];
+        return null;
       }
     });
   }
@@ -492,28 +565,38 @@
   /* ------------------------------------------------------------------ */
 
   function discover() {
-    return fromPostDirLists().then(function (list) {
-      if (list.length) return list;
-      return fromGithub().then(function (gh) {
-        if (gh.length) return gh;
-        var cached = fromCache();
-        if (cached.length) {
-          state.sources.push({ name: 'cache', ok: true, count: cached.length, detail: 'last known list' });
-          return cached;
-        }
-        return probeAll();
+    function fallback() {
+      var cached = fromCache();
+      if (cached !== null) {
+        state.sources.push({ name: 'cache', ok: true, count: cached.length, detail: 'last known list' });
+        return cached;
+      }
+      return fromPostDirLists().then(function (list) {
+        return list.length ? list : probeAll();
       });
+    }
+
+    // Local content is independent of the published GitHub repository.
+    if (isLocalHost()) {
+      return fromLocalDirectory().then(function (local) {
+        return local !== null ? local : fallback();
+      });
+    }
+
+    // An empty successful scan is authoritative.
+    return fromGithub().then(function (gh) {
+      return gh !== null ? gh : fallback();
     });
   }
 
   function fromCache() {
     try {
       var raw = JSON.parse(localStorage.getItem(CACHE_KEY) || 'null');
-      if (!raw || !Array.isArray(raw.slugs)) return [];
-      if (Date.now() - (raw.at || 0) > CACHE_TTL) return [];
+      if (!raw || !Array.isArray(raw.slugs)) return null;
+      if (Date.now() - (raw.at || 0) > CACHE_TTL) return null;
       state.cacheUsed = true;
       return raw.slugs.slice();
-    } catch (e) { return []; }
+    } catch (e) { return null; }
   }
 
   function toCache(slugs) {
@@ -538,10 +621,23 @@
   function run() {
     if (state.loading) return state.loading;
     state.lastRun = Date.now();
+    var previousSlugs = state.slugs.slice();
 
     state.loading = discover()
       .then(dedupe)
       .then(function (slugs) {
+        // Remove deleted posts from the live registry on a successful rescan.
+        if (state.sources.some(function (source) { return (source.name === 'github' || source.name === 'local-directory') && source.ok; })) {
+          var store = global.PrePortal && global.PrePortal.Store;
+          previousSlugs.forEach(function (slug) {
+            if (slugs.indexOf(slug) !== -1) return;
+            delete registry.posts[slug];
+            if (store && store.posts) delete store.posts[slug];
+            if (store && Array.isArray(store._postList)) {
+              store._postList = store._postList.filter(function (item) { return item !== slug; });
+            }
+          });
+        }
         state.slugs = slugs;
         return Promise.all([
           loadPosts(slugs),
@@ -577,7 +673,9 @@
         });
         state.slugs = good;
         good.forEach(registerSlug);
-        if (good.length) toCache(good);
+        if (!state.cacheUsed && (good.length || state.sources.some(function (source) {
+          return (source.name === 'github' || source.name === 'local-directory') && source.ok;
+        }))) toCache(good);
 
         buildCategoryCounts();
         buildSearchIndex();
@@ -615,11 +713,11 @@
   }
 
   function refresh() {
+    if (state.loading) return state.loading;
     state.loaded = false;
-    state.loading = null;
     state.sources = [];
     state.attempted = Object.create(null);
-    try { localStorage.removeItem(CACHE_KEY); } catch (e) { /* ignore */ }
+    state.cacheUsed = false;
     return run();
   }
 

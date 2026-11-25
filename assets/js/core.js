@@ -114,7 +114,7 @@
     if (name === 'posts') {
       if (eng && eng.isReady && eng.isReady()) {
         var slugs = eng.slugs();
-        if (slugs && slugs.length) return slugs;
+        if (Array.isArray(slugs)) return slugs;
       }
       return window.PREPORTAL_POSTS || [];
     }

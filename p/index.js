@@ -1,14 +1,9 @@
 /**
- * PrePortal — p/ klasöründeki yazı listesi
- * ===================================================================
- * Sadece yazı eklerken/silerken bu dosyaya bir satır ekleyin/silin.
- * data/*.js, arama indeksi, kategori sayacı — hepsi tarayıcıda
- * otomatik oluşur (assets/js/engine.js). Node, derleme, sunucu YOK.
- *
- * Klasörü tarayarak kendiliğinden güncellenmesini isterseniz:
- *   https://github.com/<kullanici>/<repo>/blob/main/p/index.js  →  kalem (Edit)
- *   ya da GitHub'da klasörde yeni dosya oluştururken bu dosyayı düzenleyin.
- * p/index.js okunamazsa motor data/auto.js → GitHub API → önbellek sırasını dener.
+ * PrePortal — p/ klasörünün yedek yazı listesi
+ * Canlı sitede engine.js, GitHub üzerinden p/*.js dosyalarını otomatik bulur.
+ * Yeni yazı eklerken/silerken bu listeyi düzenlemek gerekmez.
+ * GitHub API erişilemezse son tarama önbelleği, ardından bu liste kullanılır.
+ * Yerelde HTTP klasör listeleme açıksa p/ otomatik taranır; bu liste yalnızca yedektir.
  */
 window.PREPORTAL_POSTS = [
   "how-preportal-works",
