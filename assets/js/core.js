@@ -635,6 +635,7 @@
         b.setAttribute('aria-pressed', r === 'light' ? 'true' : 'false');
         var t = qs('[data-theme-label]', b);
         if (t) t.textContent = T(r === 'light' ? 'theme.light' : 'theme.dark');
+        if (b.classList.contains('journal-theme-toggle')) b.innerHTML = icon(r === 'light' ? 'moon' : 'sun', 18);
         var use = qs('use', b);
         if (use) use.setAttribute('href', r === 'light' ? '#i-sun' : '#i-moon');
       });
@@ -1002,6 +1003,7 @@
     if (header) {
       var cur = window.PP_I18N ? window.PP_I18N.current().toUpperCase() : 'EN';
       header.innerHTML = [
+        '<div class="journal-topline"><span><b class="journal-signal"></b> ' + esc(CFG.siteName) + '</span><span data-i18n="brand.tagline"></span></div>',
         '<div class="header-inner">',
         '<a class="brand" href="index.html" aria-label="' + esc(CFG.siteName) + '">',
         '<span class="brand-mark"><img src="' + esc(CFG.logo || 'assets/img/logo.png') + '" alt="" width="34" height="34"></span>',
@@ -1016,12 +1018,15 @@
         '</button>',
         '<div class="lang-menu" role="menu"></div>',
         '</div>',
+        '<button class="icon-btn journal-theme-toggle" type="button" data-theme-toggle aria-label="' + esc(T('actions.theme')) + '" title="' + esc(T('actions.theme')) + '">' + icon('sun', 18) + '</button>',
         '<a class="btn btn--primary btn--sm header-write" href="create.html">' + icon('pen', 16) + '<span>' + esc(T('actions.write')) + '</span></a>',
         '<button class="icon-btn nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="primaryNav" aria-label="' + esc(T('actions.menu')) + '">' + icon('menu', 20) + '</button>',
         '</div>',
         '</div>'
       ].join('');
 
+      var themeToggle = qs('[data-theme-toggle]', header);
+      if (themeToggle) themeToggle.addEventListener('click', function () { Theme.toggle(); });
       var toggle = qs('[data-nav-toggle]', header);
       if (toggle) toggle.addEventListener('click', function () {
         var open = header.classList.toggle('nav-open');
@@ -1257,6 +1262,23 @@
     }
   }
 
+  function mountJournalProgress() {
+    if (document.body.getAttribute('data-page') !== 'post' || qs('.journal-progress')) return;
+    var bar = document.createElement('div');
+    bar.className = 'journal-progress';
+    bar.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(bar);
+    function update() {
+      var root = document.documentElement;
+      var max = root.scrollHeight - root.clientHeight;
+      var progress = max > 0 ? Math.max(0, Math.min(1, window.scrollY / max)) : 0;
+      bar.style.transform = 'scaleX(' + progress + ')';
+    }
+    window.addEventListener('scroll', update, { passive: true });
+    window.addEventListener('resize', update);
+    update();
+  }
+
   /* ---------- sayfa iskeleti ---------- */
   async function init() {
     Theme.init();
@@ -1265,6 +1287,7 @@
     mountChrome();
     mountSearch();
     mountRuntime();
+    mountJournalProgress();
 
     /* Dil her değiştiğinde iskelet (menü, arama, altbilgi) anında yenilenir.
      * Sayfa içerikleri kendi 'preportal:lang' dinleyicileriyle çizilir. */
