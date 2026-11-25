@@ -7,7 +7,7 @@ window.PREPORTAL_POST.register({
   slug: 'title54',
   title: 'title54',
   category: 'games',
-  author: '123preportal',
+  author: 'preportal',
   date: '2026-11-23T20:59:00.000Z',
   updated: '2026-11-23T21:10:52.391Z',
   tags: [],
