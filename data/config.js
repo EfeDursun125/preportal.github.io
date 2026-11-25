@@ -14,7 +14,7 @@ window.PREPORTAL_CONFIG = {
 
   /* Site kimliği */
   siteName: 'PrePortal',
-  siteUrl: 'https://kullaniciadin.github.io/preportal/', // GitHub Pages adresiniz (sonunda / olsun)
+  siteUrl: 'https://preportal.github.io/preportal/', // GitHub Pages adresiniz (sonunda / olsun)
   description: 'PrePortal — APK, oyun ve yazılım incelemeleri, rehberler ve güncelleme notları.',
   logo: 'assets/img/logo.png',
 
