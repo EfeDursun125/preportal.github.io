@@ -193,9 +193,23 @@
       } catch (e) { /* ignore */ }
     }
 
+    // A fork published as a GitHub Pages project uses its own repository.
+    // Custom domains retain the explicitly configured content repository.
+    var host = String(location.hostname || '').match(/^([a-z0-9-]+)\.github\.io$/i);
+    if (host && repo) {
+      var project = String(location.pathname || '').split('/')[1] || '';
+      if (project.toLowerCase() === repo.toLowerCase() ||
+          (!project && repo.toLowerCase() === (host[1] + '.github.io').toLowerCase())) {
+        owner = host[1];
+      }
+    }
+
     if (!owner || !repo) {
-      var m = String(CFG.siteUrl || '').match(/https?:\/\/([^.]+)\.github\.io\/([^\/]+)/i);
-      if (m) { owner = owner || m[1]; repo = repo || m[2]; }
+      var m = String(CFG.siteUrl || '').match(/^https?:\/\/([a-z0-9-]+)\.github\.io(?:\/([^/?#]+))?/i);
+      if (m) {
+        owner = owner || m[1];
+        repo = repo || m[2] || (m[1] + '.github.io');
+      }
     }
 
     return { owner: owner, repo: repo, branch: branch || 'main' };

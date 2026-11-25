@@ -23,9 +23,10 @@ window.PREPORTAL_CONFIG = {
   defaultLang: 'en',
   langDir: 'lang',
 
-  /* Otomatik yazı keşfi: public GitHub deposu (token gerekmez). */
+  /* Otomatik yazı keşfi: public GitHub deposu (token gerekmez).
+   * GitHub Pages proje adresinde fork sahibi otomatik algılanır. */
   contentRepository: {
-    owner: 'EfeDursun125',
+    owner: 'Preportal',
     repo: 'preportal.github.io',
     branch: 'main'
   },

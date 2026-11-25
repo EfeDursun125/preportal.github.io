@@ -66,6 +66,9 @@ Yazı listesini şu sırayla bulur (biri olmazsa sonrakine geçer):
 3. `p/index.js` ve diğer statik yedek listeler
 4. Slug tahmini (sayfadaki bağlantılar + bilinen örnek)
 
+Varsayılan içerik deposu `Preportal/preportal.github.io`'dur. GitHub Pages üzerinde
+aynı repo adıyla yayımlanan fork, kendi deposundan içerik keşfeder. Özel alan adı
+veya farklı repo adı için `data/config.js` içindeki `contentRepository` ayarlanabilir.
 Canlı sitede GitHub API sınırına veya erişim hatasına ulaşılırsa yedekler devreye girer.
 
 ### Yerelde otomatik keşif
