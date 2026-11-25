@@ -23,6 +23,13 @@ window.PREPORTAL_CONFIG = {
   defaultLang: 'en',
   langDir: 'lang',
 
+  /* Otomatik yazı keşfi: public GitHub deposu (token gerekmez). */
+  contentRepository: {
+    owner: 'EfeDursun125',
+    repo: 'preportal.github.io',
+    branch: 'main'
+  },
+
   /* İçerik klasörleri (GitHub reposundaki gerçek klasör adları) */
   postsDir: 'p',            // gönderiler: p/<slug>.js
   usersDir: 'users',        // yazarlar:  users/<user>.js
