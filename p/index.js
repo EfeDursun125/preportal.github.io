@@ -12,5 +12,6 @@
  */
 window.PREPORTAL_POSTS = [
   "how-preportal-works",
-  "title54"
+  "title54",
+  "deneme"
 ];
