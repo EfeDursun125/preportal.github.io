@@ -66,8 +66,22 @@ Yazı listesini şu sırayla bulur (biri olmazsa sonrakine geçer):
 3. `p/index.js` ve diğer statik yedek listeler
 4. Slug tahmini (sayfadaki bağlantılar + bilinen örnek)
 
-Yerel önizlemede önce yerel yazı listesi kullanılır. Canlı sitede GitHub API
-sınırına veya erişim hatasına ulaşılırsa yedekler devreye girer.
+Canlı sitede GitHub API sınırına veya erişim hatasına ulaşılırsa yedekler devreye girer.
+
+### Yerelde otomatik keşif
+
+Repo kökünde Python'un dahili HTTP sunucusunu başlatın:
+
+```bash
+python3 -m http.server 8000 --bind 127.0.0.1
+```
+
+Tarayıcıda http://127.0.0.1:8000/ adresini açın. Motor, yerel `p/` klasörünün
+HTTP dizin listesinden yazıları bulur. Dosya ekledikten veya sildikten sonra
+sayfayı yenilemek yeterlidir. GitHub API, internet bağlantısı, Node veya derleme
+gerekmez. Apache/nginx autoindex de desteklenir. Klasör listeleme kapalıysa
+önbellek ve statik yedek listeler kullanılır; `file://` doğrudan açıldığında
+tarayıcı güvenlik kısıtlamaları nedeniyle otomatik klasör taraması garanti edilmez.
 
 Kategori ve yazarlar `category/` ve `users/` klasörlerinden okunur.
 Bulunan her yazı `window.PREPORTAL_POST.register()` ile kaydedilir; bütün
@@ -76,12 +90,11 @@ sayfalar aynı kayıttan okur.
 ```js
 // Konsolda teşhis
 PrePortalEngine.report()      // hangi kaynak, kaç yazı, son tarama
-PrePortalEngine.refresh()     // yeniden tara (önbelleği temizler)
+PrePortalEngine.refresh()     // yeniden tara (yedek önbelleği korur)
 PrePortalEngine.registerPost({ slug: 'test', title: 'Test', ... })
 ```
 
-- Adres çözümü: `siteUrl` yalnızca canlı alan adında kullanılır; `localhost`,
-  `127.0.0.1` ve `file://` durumunda bulunduğunuz klasöre göre çalışır.
+- İçerik adresleri geçerli sayfanın klasörüne göre çözülür; yerel testler canlı siteden içerik çekmez.
 - Yönetim panelinde **Genel bakış → İçerik motoru** kartı hangi kaynağın
   kullanıldığını ve kaç yazı bulunduğunu gösterir; **Yeniden tara** düğmesi vardır.
 - Yazı yoksa site bozulmaz: boş durum mesajı gösterilir.

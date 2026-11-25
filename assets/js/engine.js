@@ -5,7 +5,7 @@
  * structure: p/ (posts), category/ (categories), users/ (authors).
  *
  * How it works:
- *   - Discovers p/*.js through the public GitHub tree API.
+ *   - Discovers p/*.js from a local HTTP directory listing or the GitHub tree API.
  *   - Falls back to a cached list, p/index.js, and finally probes.
  *   - Loads category/<slug>.js and users/<slug>.js the same way.
  *   - Builds a full search index, category counts and author index in memory.
@@ -201,6 +201,59 @@
     return { owner: owner, repo: repo, branch: branch || 'main' };
   }
 
+  // The same filename rules are used for local and published posts.
+  function isPostFilename(name) {
+    return /^[\w.-]+\.js$/.test(name) && name.charAt(0) !== '_' &&
+      name.charAt(0) !== '.' && name !== 'index.js' && name.indexOf('manifest') === -1;
+  }
+
+  function fromLocalDirectory() {
+    var name = 'local-directory';
+    var url = abs(POSTS_DIR.replace(/\/+$/, '') + '/');
+    function unavailable(detail) {
+      state.sources.push({ name: name, ok: false, count: 0, detail: detail });
+      return null;
+    }
+
+    if (!/^https?:$/.test(location.protocol)) return Promise.resolve(unavailable('HTTP server required'));
+    return fetchText(url).then(function (html) {
+      if (!html) return unavailable('directory unavailable');
+      try {
+        var doc = new DOMParser().parseFromString(html, 'text/html');
+        var dir = new URL(url);
+        // Recognize actual Python http.server, Apache and nginx autoindexes.
+        // A SPA fallback or ordinary index page is not an empty directory.
+        var headings = Array.prototype.map.call(doc.querySelectorAll('title, h1'), function (node) {
+          return node.textContent.trim();
+        });
+        var listing = headings.some(function (heading) {
+          var match = /^(?:Directory listing for|Index of)\s+(.+)$/i.exec(heading);
+          if (!match) return false;
+          var path = match[1].replace(/\/+$/, '');
+          return path === dir.pathname.replace(/\/+$/, '') ||
+            path === decodeURIComponent(dir.pathname).replace(/\/+$/, '');
+        });
+        if (!listing) return unavailable('directory listing disabled or unrecognized');
+
+        var list = [];
+        doc.querySelectorAll('a[href]').forEach(function (link) {
+          try {
+            var target = new URL(link.getAttribute('href'), dir);
+            if (target.origin !== dir.origin || target.search || target.hash ||
+                target.pathname.indexOf(dir.pathname) !== 0) return;
+            var filename = decodeURIComponent(target.pathname.slice(dir.pathname.length));
+            if (isPostFilename(filename)) list.push(filename.slice(0, -3));
+          } catch (e) { /* ignore malformed links */ }
+        });
+        list = dedupe(list).sort();
+        state.sources.push({ name: name, ok: true, count: list.length, detail: url });
+        return list;
+      } catch (e) {
+        return unavailable('directory listing parse error');
+      }
+    });
+  }
+
   function fromGithub() {
     var info = githubRepoInfo();
     if (!info.owner || !info.repo) {
@@ -226,8 +279,7 @@
           if (!entry || entry.type !== 'blob' || typeof entry.path !== 'string' ||
               entry.path.indexOf(prefix) !== 0 || entry.mode === '120000') return false;
           var name = entry.path.slice(prefix.length);
-          return /^[\w.-]+\.js$/.test(name) && name.charAt(0) !== '_' &&
-            name.charAt(0) !== '.' && name !== 'index.js' && name.indexOf('manifest') === -1;
+          return isPostFilename(name);
         }).map(function (entry) {
           return entry.path.slice(prefix.length, -3);
         });
@@ -510,11 +562,10 @@
       });
     }
 
-    // Local previews may include unpublished posts from their local list.
+    // Local content is independent of the published GitHub repository.
     if (isLocalHost()) {
-      return fromPostDirLists().then(function (list) {
-        if (list.length) return list;
-        return fromGithub().then(function (gh) { return gh !== null ? gh : fallback(); });
+      return fromLocalDirectory().then(function (local) {
+        return local !== null ? local : fallback();
       });
     }
 
@@ -562,7 +613,7 @@
       .then(dedupe)
       .then(function (slugs) {
         // Remove deleted posts from the live registry on a successful rescan.
-        if (state.sources.some(function (source) { return source.name === 'github' && source.ok; })) {
+        if (state.sources.some(function (source) { return (source.name === 'github' || source.name === 'local-directory') && source.ok; })) {
           var store = global.PrePortal && global.PrePortal.Store;
           previousSlugs.forEach(function (slug) {
             if (slugs.indexOf(slug) !== -1) return;
@@ -609,7 +660,7 @@
         state.slugs = good;
         good.forEach(registerSlug);
         if (!state.cacheUsed && (good.length || state.sources.some(function (source) {
-          return source.name === 'github' && source.ok;
+          return (source.name === 'github' || source.name === 'local-directory') && source.ok;
         }))) toCache(good);
 
         buildCategoryCounts();
