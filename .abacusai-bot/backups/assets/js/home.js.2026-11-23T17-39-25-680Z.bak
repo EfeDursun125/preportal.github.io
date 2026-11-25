@@ -1,0 +1,92 @@
+/* =====================================================================
+   PrePortal — home page
+   ===================================================================== */
+(function () {
+  var P = window.PrePortal;
+  var T = P.t;
+
+  document.addEventListener('preportal:ready', function () {
+    var posts = P.publishedPosts();
+    var cats = P.categoriesWithCount();
+
+    /* stats */
+    var stats = P.qs('#heroStats');
+    if (stats) {
+      var totalRead = posts.reduce(function (a, p) { return a + P.readingTime(p.content); }, 0);
+      stats.innerHTML = [
+        stat(posts.length, T('home.statsPosts')),
+        stat(cats.length, T('home.statsCategories')),
+        stat(P.allTags().length, T('home.statsTags')),
+        stat(totalRead, T('home.statsMinutes'))
+      ].join('');
+    }
+
+    /* featured */
+    var featured = posts.filter(function (p) { return p.featured; });
+    var heroPick = featured[0] || posts[0] || null;
+
+    var heroCard = P.qs('#heroCard');
+    if (heroCard) {
+      if (!heroPick) {
+        heroCard.innerHTML = P.emptyState(T('home.emptyTitle'), T('home.emptyText'),
+          '<a class="btn btn--primary" href="create.html">' + P.esc(T('home.emptyAction')) + '</a>');
+      } else {
+        heroCard.innerHTML = [
+          '<a class="hero-feature" href="post.html?slug=' + encodeURIComponent(heroPick.slug) + '">',
+          '<span class="hero-feature__media">',
+          heroPick.cover
+            ? '<img src="' + P.esc(heroPick.cover) + '" alt="' + P.esc(heroPick.title) + '">'
+            : '<span class="card-media__fallback">' + P.icon('sparkle', 34) + '</span>',
+          '</span>',
+          '<span class="hero-feature__body">',
+          '<span class="badge badge--accent">' + P.esc(P.getCategory(heroPick.category).name) + '</span>',
+          '<strong>' + P.esc(heroPick.title) + '</strong>',
+          '<span class="hero-feature__excerpt">' + P.esc(P.truncate(heroPick.excerpt || P.stripTags(heroPick.content), 130)) + '</span>',
+          '<span class="hero-feature__meta">' + P.icon('clock', 14) + P.esc(P.formatDate(heroPick.date)) + ' · ' + P.esc(T('post.readingTime', { n: P.readingTime(heroPick.content) })) + '</span>',
+          '</span>',
+          '</a>'
+        ].join('');
+      }
+    }
+
+    /* latest */
+    var latest = P.qs('#latestPosts');
+    if (latest) {
+      var list = posts.filter(function (p) { return !heroPick || p.slug !== heroPick.slug; }).slice(0, 6);
+      latest.innerHTML = list.length
+        ? list.map(function (p, i) { return P.postCard(p, i === 0 ? 'is-wide' : ''); }).join('')
+        : P.emptyState(T('home.emptyTitle'), T('home.emptyText'), '<a class="btn btn--soft" href="create.html">' + P.esc(T('home.emptyAction')) + '</a>');
+    }
+
+    /* categories */
+    var catHost = P.qs('#homeCategories');
+    if (catHost) {
+      catHost.innerHTML = cats.length ? cats.slice(0, 8).map(function (c) {
+        return [
+          '<a class="cat-card" href="category.html?cat=' + encodeURIComponent(c.slug) + '" data-reveal>',
+          '<span class="cat-card__icon">' + P.icon(c.icon || 'folder', 21) + '</span>',
+          '<h3>' + P.esc(c.name) + '</h3>',
+          '<p>' + P.esc(P.truncate(c.description || '', 74)) + '</p>',
+          '<span class="cat-card__count">' + P.esc(T('categories.count', { n: c.count })) + '</span>',
+          '</a>'
+        ].join('');
+      }).join('') : P.emptyState(T('home.noCategories'), T('home.noCategoriesText'));
+    }
+
+    /* tags */
+    var tagHost = P.qs('#homeTags');
+    if (tagHost) {
+      var tags = P.allTags().slice(0, 18);
+      tagHost.innerHTML = tags.length ? tags.map(function (t) {
+        return '<a class="tag" href="blog.html?tag=' + encodeURIComponent(t.tag) + '">' + P.esc(t.tag) + '<small>' + t.count + '</small></a>';
+      }).join('') : '<span class="muted">' + P.esc(T('home.noTags')) + '</span>';
+    }
+
+    P.reveal();
+    P.initFancybox();
+  });
+
+  function stat(value, label) {
+    return '<div class="stat" data-reveal><b>' + P.num(value) + '</b><span>' + P.esc(label) + '</span></div>';
+  }
+})();

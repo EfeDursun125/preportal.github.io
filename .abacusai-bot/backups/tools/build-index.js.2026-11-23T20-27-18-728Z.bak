@@ -1,0 +1,88 @@
+/**
+ * PrePortal — arama indeksi üretici
+ * ------------------------------------------------------------------
+ * data/search-index.js dosyasını yeniden oluşturur.
+ *
+ *   node tools/build-index.js
+ *
+ * Neden: arama ve SEO tarayıcıları sitenin yazı listesini görebilsin.
+ * Anahtar kelimeler site arayüzünde hiçbir yerde gösterilmez; bu indeks
+ * yalnızca arama motorları ve site içi arama için veri taşır.
+ */
+const fs = require('fs');
+const path = require('path');
+
+const ROOT = path.resolve(__dirname, '..');
+const OUT = path.join(ROOT, 'data', 'search-index.js');
+
+function fold(s) {
+  return String(s == null ? '' : s)
+    .replace(/ı/g, 'i').replace(/İ/g, 'i')
+    .replace(/ş/g, 's').replace(/Ş/g, 's')
+    .replace(/ğ/g, 'g').replace(/Ğ/g, 'g')
+    .replace(/ü/g, 'u').replace(/Ü/g, 'u')
+    .replace(/ö/g, 'o').replace(/Ö/g, 'o')
+    .replace(/ç/g, 'c').replace(/Ç/g, 'c')
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/\s+/g, ' ').trim();
+}
+
+function loadPosts() {
+  const posts = {};
+  global.window = {
+    PREPORTAL_POST: { register: (p) => { if (p && p.slug) posts[p.slug] = p; } }
+  };
+  const dir = path.join(ROOT, 'p');
+  if (!fs.existsSync(dir)) return [];
+  for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.js'))) {
+    delete require.cache[require.resolve(path.join(dir, file))];
+    require(path.join(dir, file));
+  }
+  return Object.values(posts).filter(p => p.status !== 'draft');
+}
+
+function keywordsOf(p) {
+  if (!p.keywords) return [];
+  const arr = Array.isArray(p.keywords) ? p.keywords : String(p.keywords).split(/,|\r?\n/);
+  const seen = new Set(), out = [];
+  for (const raw of arr) {
+    const k = String(raw).replace(/\s+/g, ' ').trim();
+    if (!k) continue;
+    const key = fold(k);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(k);
+  }
+  return out;
+}
+
+function strip(html) {
+  return String(html || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+}
+
+const posts = loadPosts().sort((a, b) => new Date(b.date) - new Date(a.date));
+const index = posts.map(p => ({
+  slug: p.slug,
+  title: p.title,
+  url: 'post.html?slug=' + encodeURIComponent(p.slug),
+  category: p.category,
+  excerpt: p.excerpt || strip(p.content).slice(0, 160),
+  date: p.date,
+  tags: p.tags || [],
+  keywords: keywordsOf(p),
+  text: fold([p.title, p.excerpt || '', strip(p.content), (p.tags || []).join(' '), keywordsOf(p).join(' ')].join(' ')).slice(0, 1500)
+}));
+
+const body = [
+  '/**',
+  ' * PrePortal — search index (auto-generated, do not edit by hand)',
+  ' * Regenerate with: node tools/build-index.js',
+  ' * ' + index.length + ' post(s) · ' + new Date().toISOString().slice(0, 10),
+  ' */',
+  'window.PREPORTAL_SEARCH_INDEX = ' + JSON.stringify(index, null, 2) + ';',
+  ''
+].join('\n');
+
+fs.mkdirSync(path.dirname(OUT), { recursive: true });
+fs.writeFileSync(OUT, body, 'utf8');
+console.log('data/search-index.js — ' + index.length + ' yazı');

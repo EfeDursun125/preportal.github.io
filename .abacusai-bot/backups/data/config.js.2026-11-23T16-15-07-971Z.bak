@@ -1,0 +1,62 @@
+/**
+ * PrePortal — site yapılandırması
+ * Bu dosya her sayfada ilk yüklenen dosyadır (data/config.js).
+ * GitHub Pages'te yayına alırken yalnızca buradaki değerleri değiştirmeniz yeterli.
+ */
+window.PREPORTAL_CONFIG = {
+  /* Site kimliği */
+  siteName: 'PrePortal',
+  siteUrl: 'https://kullaniciadin.github.io/preportal/', // GitHub Pages adresiniz (sonunda / olsun)
+  tagline: 'Uygulama, oyun ve yazılım arşivi',
+  description: 'PrePortal — APK, oyun ve yazılım incelemeleri, rehberler ve güncelleme notları.',
+
+  /* İçerik klasörleri (GitHub reposundaki gerçek klasör adları) */
+  postsDir: 'p',            // gönderiler: p/<slug>.js
+  usersDir: 'users',        // yazarlar:  users/<kullanici>.js
+  categoryDir: 'category',  // kategoriler: category/<kategori>.js
+  mediaDir: 'assets/img',   // görseller
+
+  /* Görsel barındırma:
+   * - 'repo'      : görseller repoya konur (assets/img), yollar olduğu gibi kalır
+   * - 'imgbb'     : ImgBB API anahtarı girilirse yüklenen görseller ImgBB'ye gider
+   * - 'github'    : GitHub token'ı girilirse görseller repoya API ile yüklenir
+   */
+  media: {
+    mode: 'repo',
+    imgbbKey: '',
+    githubToken: '',
+    githubOwner: '',
+    githubRepo: '',
+    githubBranch: 'main'
+  },
+
+  /* Yorumlar — Disqus shortname (boş bırakılırsa yorum alanı gizlenir) */
+  disqus: {
+    shortname: '',            // örn: 'preportal'
+    pageIdentifier: 'url'     // 'url' | 'slug'
+  },
+
+  /* Sayfalama */
+  perPage: 12,
+
+  /* Her sayfada ilk ziyaretçiye gösterilen bilgi bandı (kapatılabilir) */
+  intro: {
+    enabled: false,
+    text: 'PrePortal yayında: incelemeler, rehberler ve güncelleme notları burada.'
+  },
+
+  /* Sosyal / bağlantılar */
+  social: {
+    telegram: '',
+    x: '',
+    github: '',
+    rss: ''
+  },
+
+  /* Tema */
+  theme: {
+    accent: '#2f6bff',
+    accent2: '#22d3ee',
+    defaultMode: 'dark'       // 'dark' | 'light' | 'system'
+  }
+};

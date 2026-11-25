@@ -1,0 +1,815 @@
+/* =====================================================================
+   PrePortal — çekirdek (core)
+   Statik ama dinamik: tüm içerik p/, users/, category/ klasörlerindeki
+   JS dosyalarından okunur. Sunucu gerekmez, GitHub Pages'te çalışır.
+   ===================================================================== */
+(function () {
+  'use strict';
+
+  var CFG = window.PREPORTAL_CONFIG || {};
+
+  /* ---------- depo (registry) ---------- */
+  var Store = {
+    posts: Object.create(null),
+    users: Object.create(null),
+    categories: Object.create(null),
+    _postList: [],
+    _ready: false
+  };
+
+  function normPost(p) {
+    if (!p || !p.slug) return null;
+    var out = Object.assign({}, p);
+    out.slug = String(p.slug);
+    out.title = p.title || 'Başlıksız';
+    out.excerpt = p.excerpt || '';
+    out.content = p.content || '';
+    out.category = p.category || p.categorySlug || 'genel';
+    out.tags = Array.isArray(p.tags) ? p.tags : (p.tags ? String(p.tags).split(',') : []);
+    out.author = p.author || p.authorSlug || 'preportal';
+    out.date = p.date || new Date().toISOString();
+    out.updated = p.updated || out.date;
+    out.cover = p.cover || p.image || '';
+    out.featured = !!p.featured;
+    out.views = Number(p.views || 0);
+    out.downloads = p.downloads || [];
+    out.version = p.version || '';
+    out.size = p.size || '';
+    out.platform = p.platform || '';
+    out.rating = p.rating == null ? null : Number(p.rating);
+    return out;
+  }
+
+  function normUser(u) {
+    if (!u || !u.slug) return null;
+    return Object.assign({
+      name: u.slug, role: '', avatar: '', bio: '', links: {}
+    }, u);
+  }
+
+  function normCategory(c) {
+    if (!c || !c.slug) return null;
+    return Object.assign({ name: c.slug, description: '', icon: 'folder' }, c);
+  }
+
+  window.PREPORTAL_POST = {
+    register: function (p) {
+      var n = normPost(p);
+      if (!n) return;
+      Store.posts[n.slug] = n;
+      if (Store._postList.indexOf(n.slug) === -1) Store._postList.push(n.slug);
+    }
+  };
+  window.PREPORTAL_USER = {
+    register: function (u) {
+      var n = normUser(u);
+      if (n) Store.users[n.slug] = n;
+    }
+  };
+  window.PREPORTAL_CATEGORY = {
+    register: function (c) {
+      var n = normCategory(c);
+      if (n) Store.categories[n.slug] = n;
+    }
+  };
+
+  /* ---------- yardımcılar ---------- */
+  function base() {
+    // site kökü: config.siteUrl yoksa mevcut dizin
+    var u = CFG.siteUrl || './';
+    return u.charAt(u.length - 1) === '/' ? u : u + '/';
+  }
+
+  function loadScript(src) {
+    return new Promise(function (resolve) {
+      var s = document.createElement('script');
+      s.src = src;
+      s.async = false;
+      s.onload = function () { resolve(true); };
+      s.onerror = function () { resolve(false); };
+      document.head.appendChild(s);
+    });
+  }
+
+  async function loadAll() {
+    if (Store._ready) return Store;
+    Store._ready = true;
+
+    var postIds = window.PREPORTAL_POSTS || [];
+    var catIds = window.PREPORTAL_CATEGORIES || [];
+    var userIds = window.PREPORTAL_USERS || [];
+
+    var jobs = [];
+    catIds.forEach(function (id) { jobs.push(loadScript(CFG.categoryDir + '/' + id + '.js')); });
+    userIds.forEach(function (id) { jobs.push(loadScript(CFG.usersDir + '/' + id + '.js')); });
+    // gönderiler dizin sırasıyla yüklenir (deterministik)
+    for (var i = 0; i < postIds.length; i++) {
+      await loadScript(CFG.postsDir + '/' + postIds[i] + '.js');
+    }
+    await Promise.all(jobs);
+    return Store;
+  }
+
+  function esc(str) {
+    return String(str == null ? '' : str)
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  }
+
+  function stripTags(html) {
+    var d = document.createElement('div');
+    d.innerHTML = String(html || '');
+    return (d.textContent || '').replace(/\s+/g, ' ').trim();
+  }
+
+  function truncate(str, n) {
+    str = String(str || '');
+    if (str.length <= n) return str;
+    return str.slice(0, n - 1).replace(/\s+\S*$/, '') + '…';
+  }
+
+  function slugify(str) {
+    var map = { 'ç': 'c', 'ğ': 'g', 'ı': 'i', 'ö': 'o', 'ş': 's', 'ü': 'u', 'Ç': 'c', 'Ğ': 'g', 'İ': 'i', 'Ö': 'o', 'Ş': 's', 'Ü': 'u' };
+    return String(str || '').replace(/[çğıöşüÇĞİÖŞÜ]/g, function (c) { return map[c] || c; })
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'yazi';
+  }
+
+  function dateObj(d) { return d instanceof Date ? d : new Date(d); }
+
+  function formatDate(d, opts) {
+    var date = dateObj(d);
+    if (isNaN(date)) return '';
+    var lang = document.documentElement.lang || 'tr';
+    try {
+      return new Intl.DateTimeFormat(lang === 'tr' ? 'tr-TR' : lang, opts || { day: 'numeric', month: 'long', year: 'numeric' }).format(date);
+    } catch (e) {
+      return date.toLocaleDateString();
+    }
+  }
+
+  function relTime(d) {
+    var date = dateObj(d);
+    if (isNaN(date)) return '';
+    var diff = (Date.now() - date.getTime()) / 1000;
+    var abs = Math.abs(diff);
+    var rtf = new Intl.RelativeTimeFormat((document.documentElement.lang || 'tr') === 'tr' ? 'tr' : document.documentElement.lang, { numeric: 'auto' });
+    if (abs < 60) return rtf.format(-Math.round(diff), 'second');
+    if (abs < 3600) return rtf.format(-Math.round(diff / 60), 'minute');
+    if (abs < 86400) return rtf.format(-Math.round(diff / 3600), 'hour');
+    if (abs < 2592000) return rtf.format(-Math.round(diff / 86400), 'day');
+    if (abs < 31536000) return rtf.format(-Math.round(diff / 2592000), 'month');
+    return rtf.format(-Math.round(diff / 31536000), 'year');
+  }
+
+  function readingTime(html) {
+    var words = stripTags(html).split(/\s+/).filter(Boolean).length;
+    return Math.max(1, Math.round(words / 200));
+  }
+
+  function num(n) {
+    return new Intl.NumberFormat((document.documentElement.lang || 'tr') === 'tr' ? 'tr-TR' : 'en').format(Number(n) || 0);
+  }
+
+  function param(name) {
+    return new URLSearchParams(location.search).get(name);
+  }
+
+  function qs(sel, root) { return (root || document).querySelector(sel); }
+  function qsa(sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); }
+
+  /* ---------- içerik sorguları ---------- */
+  function allPosts() {
+    var list = Object.keys(Store.posts).map(function (k) { return Store.posts[k]; });
+    list.sort(function (a, b) { return dateObj(b.date) - dateObj(a.date); });
+    return list;
+  }
+
+  function publishedPosts() {
+    return allPosts().filter(function (p) { return p.status !== 'draft'; });
+  }
+
+  function postsByCategory(slug) {
+    return publishedPosts().filter(function (p) { return p.category === slug; });
+  }
+
+  function postsByAuthor(slug) {
+    return publishedPosts().filter(function (p) { return p.author === slug; });
+  }
+
+  function getCategory(slug) {
+    return Store.categories[slug] || { slug: slug, name: slug.charAt(0).toUpperCase() + slug.slice(1), description: '', icon: 'folder' };
+  }
+
+  function getUser(slug) {
+    return Store.users[slug] || { slug: slug, name: slug, role: '', avatar: '', bio: '', links: {} };
+  }
+
+  function categoriesWithCount() {
+    var map = Object.create(null);
+    publishedPosts().forEach(function (p) {
+      map[p.category] = (map[p.category] || 0) + 1;
+    });
+    Object.keys(Store.categories).forEach(function (k) { if (!(k in map)) map[k] = 0; });
+    return Object.keys(map).map(function (k) {
+      var c = Object.assign({}, getCategory(k));
+      c.count = map[k];
+      return c;
+    }).sort(function (a, b) { return b.count - a.count; });
+  }
+
+  function allTags() {
+    var map = Object.create(null);
+    publishedPosts().forEach(function (p) {
+      p.tags.forEach(function (t) {
+        t = String(t).trim();
+        if (!t) return;
+        map[t] = (map[t] || 0) + 1;
+      });
+    });
+    return Object.keys(map).map(function (t) { return { tag: t, count: map[t] }; })
+      .sort(function (a, b) { return b.count - a.count; });
+  }
+
+  function searchPosts(q, opts) {
+    opts = opts || {};
+    q = String(q || '').trim().toLowerCase();
+    var list = publishedPosts();
+    if (!q) return list;
+    var terms = q.split(/\s+/);
+    return list.filter(function (p) {
+      var hay = (p.title + ' ' + p.excerpt + ' ' + stripTags(p.content) + ' ' + p.tags.join(' ') + ' ' + getCategory(p.category).name).toLowerCase();
+      return terms.every(function (t) { return hay.indexOf(t) !== -1; });
+    });
+  }
+
+  function relatedPosts(post, limit) {
+    limit = limit || 3;
+    var list = publishedPosts().filter(function (p) { return p.slug !== post.slug; });
+    return list.map(function (p) {
+      var score = 0;
+      if (p.category === post.category) score += 3;
+      post.tags.forEach(function (t) { if (p.tags.indexOf(t) !== -1) score += 2; });
+      return { p: p, s: score };
+    }).sort(function (a, b) { return b.s - a.s || dateObj(b.p.date) - dateObj(a.p.date); })
+      .slice(0, limit).map(function (x) { return x.p; });
+  }
+
+  function adjacentPosts(post) {
+    var list = publishedPosts();
+    var i = list.findIndex(function (p) { return p.slug === post.slug; });
+    return {
+      prev: i > 0 ? list[i - 1] : null,
+      next: i > -1 && i < list.length - 1 ? list[i + 1] : null
+    };
+  }
+
+  /* ---------- dosya indirme (client-side) ---------- */
+  function download(filename, text, mime) {
+    var blob = new Blob([text], { type: (mime || 'text/javascript') + ';charset=utf-8' });
+    var a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      URL.revokeObjectURL(a.href);
+      a.remove();
+    }, 800);
+  }
+
+  async function copyText(text) {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(text);
+        return true;
+      }
+    } catch (e) { /* fallthrough */ }
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      var ok = document.execCommand('copy');
+      ta.remove();
+      return ok;
+    } catch (e2) { return false; }
+  }
+
+  /* ---------- bildirim ---------- */
+  function toast(msg, type) {
+    var host = qs('#toastHost');
+    if (!host) {
+      host = document.createElement('div');
+      host.id = 'toastHost';
+      host.className = 'toast-host';
+      host.setAttribute('aria-live', 'polite');
+      document.body.appendChild(host);
+    }
+    var el = document.createElement('div');
+    el.className = 'toast toast--' + (type || 'info');
+    el.innerHTML = '<span class="toast__dot"></span><span class="toast__msg"></span>';
+    qs('.toast__msg', el).textContent = msg;
+    host.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('is-in'); });
+    setTimeout(function () {
+      el.classList.remove('is-in');
+      setTimeout(function () { el.remove(); }, 260);
+    }, 3400);
+  }
+
+  /* ---------- tema ---------- */
+  var Theme = {
+    key: 'preportal:theme',
+    get: function () {
+      try { return localStorage.getItem(this.key) || (CFG.theme && CFG.theme.defaultMode) || 'dark'; }
+      catch (e) { return 'dark'; }
+    },
+    resolved: function (mode) {
+      mode = mode || this.get();
+      if (mode === 'system') {
+        return window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      }
+      return mode === 'light' ? 'light' : 'dark';
+    },
+    apply: function (mode) {
+      var r = this.resolved(mode);
+      document.documentElement.setAttribute('data-theme', r);
+      document.documentElement.setAttribute('data-theme-mode', mode || this.get());
+      var meta = qs('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', r === 'light' ? '#f4f6fb' : '#070b18');
+      qsa('[data-theme-toggle]').forEach(function (b) {
+        b.setAttribute('aria-pressed', r === 'light' ? 'true' : 'false');
+        var t = qs('[data-theme-label]', b);
+        if (t) t.textContent = r === 'light' ? 'Açık' : 'Koyu';
+      });
+    },
+    set: function (mode) {
+      try { localStorage.setItem(this.key, mode); } catch (e) { }
+      this.apply(mode);
+    },
+    toggle: function () {
+      var cur = this.resolved();
+      this.set(cur === 'light' ? 'dark' : 'light');
+    },
+    init: function () {
+      this.apply(this.get());
+      var self = this;
+      qsa('[data-theme-toggle]').forEach(function (b) {
+        b.addEventListener('click', function () { self.toggle(); });
+      });
+      if (window.matchMedia) {
+        window.matchMedia('(prefers-color-scheme: light)').addEventListener('change', function () {
+          if (self.get() === 'system') self.apply('system');
+        });
+      }
+    }
+  };
+
+  /* ---------- Fancybox (yerel, gerektiğinde yüklenir) ---------- */
+  var fancyPromise = null;
+  function loadFancybox() {
+    if (window.Fancybox) return Promise.resolve(true);
+    if (fancyPromise) return fancyPromise;
+    fancyPromise = new Promise(function (resolve) {
+      var css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'vendor/fancybox/fancybox.css';
+      document.head.appendChild(css);
+      var s1 = document.createElement('script');
+      s1.src = 'vendor/fancybox/tr_TR.umd.js';
+      s1.onload = function () {
+        var s2 = document.createElement('script');
+        s2.src = 'vendor/fancybox/fancybox.umd.js';
+        s2.onload = function () { resolve(true); };
+        s2.onerror = function () { resolve(false); };
+        document.head.appendChild(s2);
+      };
+      s1.onerror = function () { resolve(false); };
+      document.head.appendChild(s1);
+    });
+    return fancyPromise;
+  }
+
+  function initFancybox(scope) {
+    if (!window.Fancybox) {
+      loadFancybox().then(function (ok) { if (ok) initFancybox(scope); });
+      return;
+    }
+    try {
+      window.Fancybox.bind((scope || document).querySelectorAll('[data-fancybox]').length ? '[data-fancybox]' : '', {});
+    } catch (e) { /* boş seçici hatası — sessiz geç */ }
+  }
+
+  /* ---------- Disqus ---------- */
+  function mountDisqus(post, hostEl) {
+    if (!hostEl) return;
+    var sn = CFG.disqus && CFG.disqus.shortname;
+    if (!sn) {
+      hostEl.innerHTML = '<div class="comments-empty">' +
+        '<strong>Yorumlar henüz etkin değil.</strong>' +
+        '<p><code>data/config.js</code> içindeki <code>disqus.shortname</code> alanına Disqus shortname değerini yazın.</p>' +
+        '</div>';
+      return;
+    }
+    var identifier = (CFG.disqus.pageIdentifier === 'slug')
+      ? post.slug
+      : (base() + 'post.html?slug=' + encodeURIComponent(post.slug));
+
+    window.disqus_config = function () {
+      this.page.url = identifier;
+      this.page.identifier = identifier;
+      this.page.title = post.title;
+    };
+    var s = document.createElement('script');
+    s.src = 'https://' + sn + '.disqus.com/embed.js';
+    s.setAttribute('data-timestamp', String(Date.now()));
+    s.async = true;
+    hostEl.innerHTML = '';
+    hostEl.appendChild(s);
+    // yüklenemezse bilgi ver
+    setTimeout(function () {
+      if (!qs('#disqus_thread iframe', hostEl)) {
+        hostEl.innerHTML = '<div class="comments-empty"><strong>Yorumlar yüklenemedi.</strong>' +
+          '<p>Disqus shortname değerini veya tarayıcıdaki engelleyicileri kontrol edin.</p></div>';
+      }
+    }, 6000);
+  }
+
+  /* ---------- iskelet (header/footer) ---------- */
+  function navHTML() {
+    var items = [
+      { href: 'index.html', label: 'Ana Sayfa', icon: 'home' },
+      { href: 'category.html', label: 'Kategoriler', icon: 'grid' },
+      { href: 'apps.html', label: 'Uygulamalar', icon: 'smartphone' },
+      { href: 'games.html', label: 'Oyunlar', icon: 'gamepad' },
+      { href: 'blog.html', label: 'Blog', icon: 'pen' },
+      { href: 'upload.html', label: 'Görsel', icon: 'upload' }
+    ];
+    var bodyPage = document.body.getAttribute('data-page') || '';
+    return items.map(function (it) {
+      var key = it.href.replace('.html', '');
+      var active = bodyPage === key || (key === 'blog' && bodyPage === 'category');
+      return '<a class="nav-link' + (active ? ' is-active' : '') + '" href="' + it.href + '">' + icon(it.icon) + '<span>' + it.label + '</span></a>';
+    }).join('');
+  }
+
+  function socialHTML() {
+    var soc = CFG.social || {};
+    var items = [
+      { k: 'telegram', label: 'Telegram', url: soc.telegram, svg: '<path d="m21 4-2.6 15.2a1 1 0 0 1-1.6.6l-4.3-3.2-2 2.1a1 1 0 0 1-1.7-.6l-.6-3.7-3.6-1.2a1 1 0 0 1 0-1.9L20 3.4a.8.8 0 0 1 1 .6Z"/>' },
+      { k: 'x', label: 'X', url: soc.x, svg: '<path d="M4 4l16 16M20 4 4 20"/>' },
+      { k: 'github', label: 'GitHub', url: soc.github, svg: '<path d="M9 19c-4 1.5-4-2.5-6-3m12 5v-3.5c0-1 .1-1.4-.5-2 2.8-.3 4.5-1.4 4.5-4.8 0-1.1-.4-2-1-2.7.1-.3.4-1.3-.1-2.6 0 0-1-.3-3.4 1.4a10 10 0 0 0-5 0C6.8 4.3 5.8 4.6 5.8 4.6c-.5 1.3-.2 2.3-.1 2.6-.6.7-1 1.6-1 2.7 0 3.4 1.7 4.5 4.5 4.8-.5.5-.5 1-.5 1.8V20"/>' },
+      { k: 'rss', label: 'RSS', url: soc.rss, svg: '<path d="M4 11a9 9 0 0 1 9 9M4 4a16 16 0 0 1 16 16"/><circle cx="5" cy="19" r="1.6"/>' }
+    ].filter(function (i) { return i.url; });
+    if (!items.length) return '';
+    return '<div class="footer-social">' + items.map(function (i) {
+      return '<a href="' + esc(i.url) + '" target="_blank" rel="noopener" aria-label="' + i.label + '" title="' + i.label + '">' +
+        '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + i.svg + '</svg></a>';
+    }).join('') + '</div>';
+  }
+
+  function icon(name, size) {
+    var s = size || 18;
+    var p = {
+      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5"/>',
+      grid: '<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+      smartphone: '<rect x="6" y="2.5" width="12" height="19" rx="3"/><path d="M10.5 18.5h3"/>',
+      gamepad: '<path d="M7 8h10a5 5 0 0 1 5 5v.5a3.5 3.5 0 0 1-6.3 2L14 14h-4l-1.7 1.5a3.5 3.5 0 0 1-6.3-2V13a5 5 0 0 1 5-5Z"/><path d="M8 11v2M7 12h2"/><circle cx="16" cy="12" r="1"/>',
+      pen: '<path d="M4 20h4l10-10a2.8 2.8 0 0 0-4-4L4 16v4Z"/><path d="M14 6l4 4"/>',
+      folder: '<path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z"/>',
+      megaphone: '<path d="M4 10v4l12 5V5L4 10Z"/><path d="M18 9a3 3 0 0 1 0 6"/>',
+      book: '<path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v18H6.5A2.5 2.5 0 0 0 4 22V4.5Z"/><path d="M4 17.5h16"/>',
+      search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+      moon: '<path d="M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5Z"/>',
+      sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M5 5l1.5 1.5M17.5 17.5 19 19M19 5l-1.5 1.5M6.5 17.5 5 19"/>',
+      clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/>',
+      eye: '<path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12Z"/><circle cx="12" cy="12" r="2.8"/>',
+      download: '<path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 20h16"/>',
+      arrowLeft: '<path d="M19 12H5"/><path d="m11 6-6 6 6 6"/>',
+      arrowRight: '<path d="M5 12h14"/><path d="m13 6 6 6-6 6"/>',
+      copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/>',
+      check: '<path d="m4 12.5 5 5L20 6.5"/>',
+      star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1-5.4-2.9-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3Z"/>',
+      tag: '<path d="M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9-9-9Z"/><circle cx="7.5" cy="7.5" r="1.4"/>',
+      menu: '<path d="M4 7h16M4 12h16M4 17h16"/>',
+      close: '<path d="M6 6l12 12M18 6 6 18"/>',
+      upload: '<path d="M12 21V9"/><path d="m7 13 5-5 5 5"/><path d="M4 4h16"/>',
+      save: '<path d="M5 3h11l3 3v15H5Z"/><path d="M8 3v6h8V3"/><path d="M8 14h8v7H8Z"/>',
+      link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7L11.5 6.8"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1.5-1.5"/>',
+      user: '<circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/>',
+      trash: '<path d="M4 7h16"/><path d="M9 7V4h6v3"/><path d="M6 7l1 14h10l1-14"/>',
+      code: '<path d="m9 8-5 4 5 4"/><path d="m15 8 5 4-5 4"/>',
+      sparkle: '<path d="M12 3v6M12 15v6M3 12h6M15 12h6"/><path d="m6.5 6.5 3 3M14.5 14.5l3 3M17.5 6.5l-3 3M9.5 14.5l-3 3"/>'
+    }[name] || '';
+    return '<svg class="icon" width="' + s + '" height="' + s + '" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + p + '</svg>';
+  }
+
+  function mountChrome() {
+    var header = qs('[data-header]');
+    if (header) {
+      header.innerHTML = [
+        '<div class="header-inner">',
+        '<a class="brand" href="index.html" aria-label="' + esc(CFG.siteName) + ' ana sayfa">',
+        '<span class="brand-mark"><img src="assets/img/logo.png" alt="" width="34" height="34"></span>',
+        '<span class="brand-text"><strong>' + esc(CFG.siteName) + '</strong><small>' + esc(CFG.tagline || '') + '</small></span>',
+        '</a>',
+        '<nav class="nav" id="primaryNav" aria-label="Ana menü">' + navHTML() + '</nav>',
+        '<div class="header-actions">',
+        '<button class="icon-btn search-btn" type="button" data-open-search aria-label="Ara">' + icon('search', 19) + '</button>',
+        '<button class="icon-btn theme-btn" type="button" data-theme-toggle aria-label="Tema değiştir">' + icon('moon', 19) + '</button>',
+        '<a class="btn btn--primary btn--sm" href="create.html">' + icon('pen', 16) + '<span>Yazı Yaz</span></a>',
+        '<button class="icon-btn nav-toggle" type="button" data-nav-toggle aria-expanded="false" aria-controls="primaryNav" aria-label="Menü">' + icon('menu', 20) + '</button>',
+        '</div>',
+        '</div>'
+      ].join('');
+
+      var toggle = qs('[data-nav-toggle]', header);
+      if (toggle) toggle.addEventListener('click', function () {
+        var open = header.classList.toggle('nav-open');
+        toggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+    }
+
+    var footer = qs('[data-footer]');
+    if (footer) {
+      var cats = categoriesWithCount().slice(0, 6).map(function (c) {
+        return '<li><a href="category.html?cat=' + encodeURIComponent(c.slug) + '">' + esc(c.name) + '<span>' + c.count + '</span></a></li>';
+      }).join('');
+      footer.innerHTML = [
+        '<div class="footer-inner">',
+        '<div class="footer-brand">',
+        '<a class="brand" href="index.html"><span class="brand-mark"><img src="assets/img/logo.png" alt="" width="30" height="30"></span><span class="brand-text"><strong>' + esc(CFG.siteName) + '</strong></span></a>',
+        '<p>' + esc(CFG.description || '') + '</p>',
+        '<p class="footer-note">' + icon('code', 15) + ' Statik altyapı · GitHub Pages · Sunucusuz</p>',
+        socialHTML(),
+        '</div>',
+        '<div class="footer-col"><h4>Keşfet</h4><ul>',
+        '<li><a href="index.html">Ana Sayfa</a></li>',
+        '<li><a href="category.html">Kategoriler</a></li>',
+        '<li><a href="blog.html">Tüm Yazılar</a></li>',
+        '<li><a href="apps.html">Uygulamalar</a></li>',
+        '<li><a href="games.html">Oyunlar</a></li>',
+        '</ul></div>',
+        '<div class="footer-col"><h4>Kategoriler</h4><ul>' + (cats || '<li class="muted">Henüz kategori yok</li>') + '</ul></div>',
+        '<div class="footer-col"><h4>Editör</h4><ul>',
+        '<li><a href="create.html">Yeni yazı oluştur</a></li>',
+        '<li><a href="create.html?tab=publish">Yayın aracı</a></li>',
+        '<li><a href="upload.html">Görsel hazırla</a></li>',
+        '<li><a href="admin.html">Yönetim paneli</a></li>',
+        '<li><a href="about.html">Hakkında</a></li>',
+        '<li><a href="privacy.html">Gizlilik</a></li>',
+        (CFG.social && CFG.social.rss ? '<li><a href="' + esc(CFG.social.rss) + '">RSS akışı</a></li>' : ''),
+        '</ul></div>',
+        '</div>',
+        '<div class="footer-bottom"><span>© ' + new Date().getFullYear() + ' ' + esc(CFG.siteName) + '. Tüm hakları saklıdır.</span>',
+        '<span class="footer-badges"><span class="pill">HTML</span><span class="pill">CSS</span><span class="pill">JavaScript</span></span></div>'
+      ].join('');
+    }
+  }
+
+  /* ---------- arama katmanı ---------- */
+  function mountSearch() {
+    var modal = qs('#searchModal');
+    if (!modal) {
+      modal = document.createElement('div');
+      modal.id = 'searchModal';
+      modal.className = 'search-modal';
+      modal.setAttribute('role', 'dialog');
+      modal.setAttribute('aria-modal', 'true');
+      modal.setAttribute('aria-label', 'Site içinde ara');
+      modal.innerHTML = [
+        '<div class="search-panel">',
+        '<div class="search-field">' + icon('search', 20),
+        '<input type="search" id="searchInput" placeholder="Yazı, kategori veya etiket ara…" autocomplete="off" aria-label="Arama">',
+        '<button class="icon-btn" type="button" data-close-search aria-label="Kapat">' + icon('close', 18) + '</button>',
+        '</div>',
+        '<div class="search-filters" id="searchFilters"></div>',
+        '<div class="search-results" id="searchResults"><p class="search-hint">Yazmaya başlayın…</p></div>',
+        '<div class="search-foot"><kbd>Esc</kbd> kapat · <kbd>↵</kbd> ilk sonuca git</div>',
+        '</div>'
+      ].join('');
+      document.body.appendChild(modal);
+    }
+
+    var input = qs('#searchInput', modal);
+    var results = qs('#searchResults', modal);
+    var filters = qs('#searchFilters', modal);
+    var activeCat = '';
+
+    function renderFilters() {
+      var cats = categoriesWithCount();
+      filters.innerHTML = ['<button class="chip' + (activeCat === '' ? ' is-active' : '') + '" type="button" data-scat="">Tümü</button>']
+        .concat(cats.map(function (c) {
+          return '<button class="chip' + (activeCat === c.slug ? ' is-active' : '') + '" type="button" data-scat="' + esc(c.slug) + '">' + esc(c.name) + '</button>';
+        })).join('');
+    }
+    filters.addEventListener('click', function (e) {
+      var b = e.target.closest('[data-scat]');
+      if (!b) return;
+      activeCat = b.getAttribute('data-scat');
+      renderFilters();
+      render(input.value.trim());
+    });
+    var lastResults = [];
+
+    function open() {
+      if (!filters.childElementCount) renderFilters();
+      modal.classList.add('is-open');
+      document.body.classList.add('no-scroll');
+      setTimeout(function () { input.focus(); }, 30);
+    }
+    function close() {
+      modal.classList.remove('is-open');
+      document.body.classList.remove('no-scroll');
+    }
+    function render(q) {
+      if (!q) {
+        lastResults = [];
+        results.innerHTML = '<p class="search-hint">Yazmaya başlayın…</p>';
+        return;
+      }
+      lastResults = searchPosts(q).filter(function (p) { return !activeCat || p.category === activeCat; }).slice(0, 8);
+      if (!lastResults.length) {
+        results.innerHTML = '<p class="search-hint">“' + esc(q) + '” için sonuç bulunamadı.</p>';
+        return;
+      }
+      results.innerHTML = lastResults.map(function (p) {
+        return '<a class="search-result" href="post.html?slug=' + encodeURIComponent(p.slug) + '">' +
+          '<span class="search-result__title">' + esc(p.title) + '</span>' +
+          '<span class="search-result__meta">' + esc(getCategory(p.category).name) + ' · ' + esc(formatDate(p.date)) + '</span>' +
+          '</a>';
+      }).join('');
+    }
+
+    document.addEventListener('click', function (e) {
+      if (e.target.closest('[data-open-search]')) { e.preventDefault(); open(); }
+      if (e.target.closest('[data-close-search]') || e.target === modal) close();
+    });
+    input.addEventListener('input', function () { render(input.value.trim()); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && lastResults.length) {
+        location.href = 'post.html?slug=' + encodeURIComponent(lastResults[0].slug);
+      }
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && modal.classList.contains('is-open')) close();
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); open(); }
+      if (e.key === '/' && !/input|textarea/i.test(document.activeElement.tagName) && !modal.classList.contains('is-open')) {
+        e.preventDefault(); open();
+      }
+    });
+  }
+
+  /* ---------- görünürlük animasyonları ---------- */
+  function reveal() {
+    var els = qsa('[data-reveal]:not(.is-revealed)');
+    if (!els.length) return;
+    if (!('IntersectionObserver' in window) || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      els.forEach(function (el) { el.classList.add('is-revealed'); });
+      return;
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) {
+        if (en.isIntersecting) {
+          en.target.classList.add('is-revealed');
+          io.unobserve(en.target);
+        }
+      });
+    }, { rootMargin: '0px 0px -8% 0px', threshold: 0.06 });
+    els.forEach(function (el, i) {
+      el.style.setProperty('--reveal-delay', (i % 6) * 55 + 'ms');
+      io.observe(el);
+    });
+  }
+
+  /* ---------- kart şablonları ---------- */
+  function coverStyle(p) {
+    if (p.cover) return 'background-image:url(\'' + String(p.cover).replace(/'/g, '%27') + '\')';
+    return '';
+  }
+
+  function postCard(p, variant) {
+    var cat = getCategory(p.category);
+    var author = getUser(p.author);
+    var v = variant || '';
+    return [
+      '<article class="card post-card ' + v + '" data-reveal>',
+      '<a class="card-media" href="post.html?slug=' + encodeURIComponent(p.slug) + '" aria-label="' + esc(p.title) + '">',
+      p.cover ? '<img src="' + esc(p.cover) + '" alt="' + esc(p.title) + '" loading="lazy" decoding="async">' : '<span class="card-media__fallback">' + icon('sparkle', 26) + '</span>',
+      '<span class="badge badge--cat">' + esc(cat.name) + '</span>',
+      p.featured ? '<span class="badge badge--feat">' + icon('star', 12) + ' Öne çıkan</span>' : '',
+      '</a>',
+      '<div class="card-body">',
+      '<h3 class="card-title"><a href="post.html?slug=' + encodeURIComponent(p.slug) + '">' + esc(p.title) + '</a></h3>',
+      '<p class="card-excerpt">' + esc(truncate(p.excerpt || stripTags(p.content), 120)) + '</p>',
+      '<div class="card-meta">',
+      '<span class="meta-item">' + icon('user', 14) + esc(author.name) + '</span>',
+      '<span class="meta-item">' + icon('clock', 14) + esc(formatDate(p.date)) + '</span>',
+      '<span class="meta-item">' + icon('eye', 14) + readingTime(p.content) + ' dk</span>',
+      '</div>',
+      '</div>',
+      '</article>'
+    ].join('');
+  }
+
+  function postRow(p) {
+    var cat = getCategory(p.category);
+    return [
+      '<a class="row-card" href="post.html?slug=' + encodeURIComponent(p.slug) + '" data-reveal>',
+      '<span class="row-card__thumb">',
+      p.cover ? '<img src="' + esc(p.cover) + '" alt="" loading="lazy" decoding="async">' : '<span class="row-card__fallback">' + icon('sparkle', 20) + '</span>',
+      '</span>',
+      '<span class="row-card__body">',
+      '<span class="row-card__title">' + esc(p.title) + '</span>',
+      '<span class="row-card__excerpt">' + esc(truncate(p.excerpt || stripTags(p.content), 110)) + '</span>',
+      '<span class="row-card__meta"><span class="badge badge--ghost">' + esc(cat.name) + '</span>' + esc(formatDate(p.date)) + ' · ' + readingTime(p.content) + ' dk</span>',
+      '</span>',
+      '</a>'
+    ].join('');
+  }
+
+  function emptyState(title, text, action) {
+    return '<div class="empty-state" data-reveal>' + icon('sparkle', 28) +
+      '<h3>' + esc(title) + '</h3><p>' + esc(text) + '</p>' + (action || '') + '</div>';
+  }
+
+  /* ---------- içindekiler (TOC) ---------- */
+  function buildTOC(container, target) {
+    if (!container || !target) return;
+    var heads = qsa('h2, h3', container);
+    if (heads.length < 2) return;
+    heads.forEach(function (h, i) {
+      if (!h.id) h.id = slugify(h.textContent) || ('baslik-' + i);
+    });
+    target.innerHTML = heads.map(function (h) {
+      return '<a href="#' + h.id + '" class="' + (h.tagName === 'H3' ? 'is-h3' : '') + '">' + esc(h.textContent) + '</a>';
+    }).join('');
+    var links = qsa('a', target);
+    if ('IntersectionObserver' in window) {
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (en) {
+          if (!en.isIntersecting) return;
+          links.forEach(function (l) { l.classList.toggle('is-active', l.getAttribute('href') === '#' + en.target.id); });
+        });
+      }, { rootMargin: '-20% 0px -70% 0px' });
+      heads.forEach(function (h) { io.observe(h); });
+    }
+  }
+
+  /* ---------- sayfa iskeleti ---------- */
+  async function init() {
+    Theme.init();
+    await loadAll();
+    mountChrome();
+    mountSearch();
+    document.dispatchEvent(new CustomEvent('preportal:ready'));
+    reveal();
+    window.PrePortalReveal = reveal;
+  }
+
+  window.PrePortal = {
+    CFG: CFG,
+    Store: Store,
+    ready: init,
+    init: init,
+    allPosts: allPosts,
+    publishedPosts: publishedPosts,
+    postsByCategory: postsByCategory,
+    postsByAuthor: postsByAuthor,
+    categoriesWithCount: categoriesWithCount,
+    allTags: allTags,
+    getCategory: getCategory,
+    getUser: getUser,
+    searchPosts: searchPosts,
+    relatedPosts: relatedPosts,
+    adjacentPosts: adjacentPosts,
+    postCard: postCard,
+    postRow: postRow,
+    emptyState: emptyState,
+    esc: esc,
+    stripTags: stripTags,
+    truncate: truncate,
+    slugify: slugify,
+    formatDate: formatDate,
+    relTime: relTime,
+    readingTime: readingTime,
+    num: num,
+    param: param,
+    qs: qs,
+    qsa: qsa,
+    download: download,
+    copyText: copyText,
+    toast: toast,
+    icon: icon,
+    Theme: Theme,
+    initFancybox: initFancybox,
+    mountDisqus: mountDisqus,
+    reveal: reveal,
+    loadFancybox: loadFancybox,
+    buildTOC: buildTOC,
+    base: base
+  };
+})();

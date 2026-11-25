@@ -1,0 +1,162 @@
+/**
+ * PrePortal — i18n çekirdeği
+ * Dil dosyaları: lang/<code>.json · Kullanım: data-i18n="anahtar" / data-i18n-attr="placeholder:anahtar"
+ */
+(function (w, d) {
+  'use strict';
+
+  var LS_KEY = 'preportal:lang';
+  var FALLBACK = 'en';
+  var cache = {};
+  var dict = {};
+  var current = FALLBACK;
+
+  function deepGet(obj, path) {
+    var parts = String(path).split('.');
+    var cur = obj;
+    for (var i = 0; i < parts.length; i++) {
+      if (cur == null || typeof cur !== 'object') return null;
+      cur = cur[parts[i]];
+    }
+    return cur == null ? null : cur;
+  }
+
+  /** t('post.readingTime', {n: 4}) */
+  function t(key, vars) {
+    var v = deepGet(dict, key);
+    if (v == null) v = deepGet(cache[FALLBACK] || {}, key);
+    if (v == null) return key;
+    if (vars && typeof v === 'string') {
+      v = v.replace(/\{(\w+)\}/g, function (m, k) {
+        return Object.prototype.hasOwnProperty.call(vars, k) ? String(vars[k]) : m;
+      });
+    }
+    return v;
+  }
+
+  function raw(key) {
+    var v = deepGet(dict, key);
+    return v == null ? deepGet(cache[FALLBACK] || {}, key) : v;
+  }
+
+  function meta() {
+    return dict._meta || (cache[FALLBACK] && cache[FALLBACK]._meta) || { code: current, name: current, dir: 'ltr', intl: current };
+  }
+
+  function detect() {
+    try {
+      var saved = localStorage.getItem(LS_KEY);
+      if (saved && available().indexOf(saved) > -1) return saved;
+    } catch (e) {}
+    var langs = (w.PREPORTAL_CONFIG && w.PREPORTAL_CONFIG.langs) || ['en', 'tr', 'ru'];
+    var nav = (navigator.languages || [navigator.language || '']).filter(Boolean);
+    for (var i = 0; i < nav.length; i++) {
+      var code = String(nav[i]).toLowerCase().split('-')[0];
+      if (langs.indexOf(code) > -1) return code;
+    }
+    return (w.PREPORTAL_CONFIG && w.PREPORTAL_CONFIG.defaultLang) || FALLBACK;
+  }
+
+  function available() {
+    return (w.PREPORTAL_CONFIG && w.PREPORTAL_CONFIG.langs) || ['en', 'tr', 'ru'];
+  }
+
+  function fetchLang(code) {
+    if (cache[code]) return Promise.resolve(cache[code]);
+    return fetch('lang/' + code + '.json', { cache: 'no-cache' })
+      .then(function (r) {
+        if (!r.ok) throw new Error('lang/' + code + '.json → HTTP ' + r.status);
+        return r.json();
+      })
+      .then(function (json) {
+        cache[code] = json;
+        return json;
+      });
+  }
+
+  /** Sayfadaki tüm [data-i18n] düğümlerini doldur */
+  function apply(root) {
+    root = root || d;
+    var nodes = root.querySelectorAll('[data-i18n]');
+    for (var i = 0; i < nodes.length; i++) {
+      var el = nodes[i];
+      var val = t(el.getAttribute('data-i18n'));
+      if (typeof val !== 'string') continue;
+      if (el.hasAttribute('data-i18n-html')) el.innerHTML = val;
+      else el.textContent = val;
+    }
+    var attrs = root.querySelectorAll('[data-i18n-attr]');
+    for (var j = 0; j < attrs.length; j++) {
+      var a = attrs[j];
+      a.getAttribute('data-i18n-attr').split(',').forEach(function (pair) {
+        var bits = pair.split(':');
+        var attr = bits[0].trim();
+        var key = bits[1].trim();
+        var v = t(key);
+        if (typeof v === 'string') a.setAttribute(attr, v);
+      });
+    }
+    var html = root.querySelectorAll('[data-i18n-tpl]');
+    for (var k = 0; k < html.length; k++) {
+      var h = html[k];
+      h.innerHTML = t(h.getAttribute('data-i18n-tpl'), {
+        site: (w.PREPORTAL_CONFIG && w.PREPORTAL_CONFIG.siteName) || 'PrePortal',
+        year: new Date().getFullYear()
+      });
+    }
+  }
+
+  function setLang(code, opts) {
+    opts = opts || {};
+    if (available().indexOf(code) === -1) code = FALLBACK;
+    return Promise.all([fetchLang(FALLBACK), fetchLang(code)]).then(function (res) {
+      current = code;
+      dict = res[1];
+      var m = meta();
+      d.documentElement.lang = m.code || code;
+      d.documentElement.dir = m.dir || 'ltr';
+      try { localStorage.setItem(LS_KEY, code); } catch (e) {}
+      apply();
+      if (!opts.silent) {
+        d.dispatchEvent(new CustomEvent('preportal:lang', { detail: { code: code, meta: m } }));
+      }
+      return code;
+    });
+  }
+
+  function init() {
+    return setLang(detect(), { silent: true });
+  }
+
+  function formatDate(iso, o) {
+    o = o || {};
+    var dt = new Date(iso);
+    if (isNaN(dt)) return '';
+    try {
+      return new Intl.DateTimeFormat(meta().intl || current, Object.assign({ year: 'numeric', month: 'long', day: 'numeric' }, o)).format(dt);
+    } catch (e) {
+      return dt.toLocaleDateString();
+    }
+  }
+
+  function formatNumber(n) {
+    try {
+      return new Intl.NumberFormat(meta().intl || current).format(n);
+    } catch (e) {
+      return String(n);
+    }
+  }
+
+  w.PP_I18N = {
+    init: init,
+    setLang: setLang,
+    t: t,
+    raw: raw,
+    meta: meta,
+    apply: apply,
+    formatDate: formatDate,
+    formatNumber: formatNumber,
+    available: available,
+    current: function () { return current; }
+  };
+})(window, document);

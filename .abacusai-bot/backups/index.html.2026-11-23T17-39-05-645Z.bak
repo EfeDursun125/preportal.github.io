@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>PrePortal — Apps, games and software archive</title>
+  <meta name="description" content="PrePortal — APK, game and software reviews, guides and release notes.">
+  <meta name="theme-color" content="#070b18">
+  <link rel="icon" href="assets/img/favicon-32.png" sizes="32x32">
+  <link rel="apple-touch-icon" href="assets/img/apple-touch-icon.png">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="PrePortal">
+  <meta property="og:title" content="PrePortal — Apps, games and software archive">
+  <meta property="og:description" content="APK, game and software reviews, guides and release notes.">
+  <meta property="og:image" content="assets/img/logo-256.png">
+  <link rel="stylesheet" href="assets/css/theme.css">
+  <script>
+    /* theme is applied before first paint (no flash) */
+    (function () {
+      try {
+        var m = localStorage.getItem('preportal:theme') || 'dark';
+        var r = m === 'system' ? (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark') : m;
+        document.documentElement.setAttribute('data-theme', r === 'light' ? 'light' : 'dark');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body data-page="index">
+
+  <header class="site-header" data-header></header>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-grid" aria-hidden="true"></div>
+      <div class="container hero-inner">
+        <div>
+          <span class="eyebrow" data-i18n="home.eyebrow"></span>
+          <h1 data-i18n-html="home.title"></h1>
+          <p class="hero-lead" data-i18n="home.lead"></p>
+          <div class="hero-actions">
+            <a class="btn btn--primary btn--lg" href="blog.html" data-i18n="home.ctaExplore"></a>
+            <a class="btn btn--ghost btn--lg" href="create.html" data-i18n="home.ctaWrite"></a>
+          </div>
+          <div class="hero-stats" id="heroStats"></div>
+        </div>
+
+        <div id="heroCard" aria-live="polite"></div>
+      </div>
+    </section>
+
+    <!-- LATEST -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow" data-i18n="blog.eyebrow"></span>
+            <h2 data-i18n="home.latestTitle"></h2>
+            <p data-i18n="home.latestSub"></p>
+          </div>
+          <a class="btn btn--ghost btn--sm" href="blog.html" data-i18n="actions.seeAll"></a>
+        </div>
+        <div class="grid grid--posts" id="latestPosts" aria-live="polite">
+          <div class="skeleton" style="height:300px"></div>
+          <div class="skeleton" style="height:300px"></div>
+          <div class="skeleton" style="height:300px"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CATEGORIES -->
+    <section class="section">
+      <div class="container">
+        <div class="section-head">
+          <div>
+            <span class="eyebrow" data-i18n="categories.eyebrow"></span>
+            <h2 data-i18n="home.categoriesTitle"></h2>
+          </div>
+          <a class="btn btn--ghost btn--sm" href="category.html" data-i18n="nav.categories"></a>
+        </div>
+        <div class="grid grid--3" id="homeCategories"></div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="section">
+      <div class="container">
+        <div class="grid grid--sidebar">
+          <div>
+            <span class="eyebrow" data-i18n="studio.eyebrow"></span>
+            <h2 data-i18n="home.stepsTitle"></h2>
+            <p class="muted" data-i18n="intro.main"></p>
+            <div class="grid grid--3" style="margin-top:24px">
+              <div class="panel" data-reveal>
+                <h4 data-i18n="home.step1"></h4>
+                <p class="muted" style="font-size:.86rem;margin:0" data-i18n-html="home.step1Text"></p>
+              </div>
+              <div class="panel" data-reveal>
+                <h4 data-i18n="home.step2"></h4>
+                <p class="muted" style="font-size:.86rem;margin:0" data-i18n-html="home.step2Text"></p>
+              </div>
+              <div class="panel" data-reveal>
+                <h4 data-i18n="home.step3"></h4>
+                <p class="muted" style="font-size:.86rem;margin:0" data-i18n-html="home.step3Text"></p>
+              </div>
+            </div>
+          </div>
+
+          <aside class="sidebar">
+            <div class="panel">
+              <h4 data-i18n="home.tagsTitle"></h4>
+              <div class="tag-cloud" id="homeTags"></div>
+            </div>
+            <div class="panel">
+              <h4 data-i18n="home.quickTitle"></h4>
+              <ul class="cat-list">
+                <li><a href="apps.html" data-i18n="nav.apps"></a></li>
+                <li><a href="games.html" data-i18n="nav.games"></a></li>
+                <li><a href="category.html" data-i18n="nav.categories"></a></li>
+                <li><a href="create.html?tab=publish" data-i18n="footer.publishTool"></a></li>
+              </ul>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer" data-footer></footer>
+
+  <script src="data/config.js"></script>
+  <script src="assets/js/i18n.js"></script>
+  <script src="data/posts.js"></script>
+  <script src="data/categories.js"></script>
+  <script src="data/users.js"></script>
+  <script src="assets/js/core.js"></script>
+  <script src="assets/js/home.js"></script>
+  <script>
+    window.PrePortal.ready();
+  </script>
+</body>
+</html>

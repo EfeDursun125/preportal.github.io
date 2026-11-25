@@ -1,0 +1,97 @@
+/* =====================================================================
+   PrePortal — ana sayfa
+   ===================================================================== */
+(function () {
+  var P = window.PrePortal;
+
+  document.addEventListener('preportal:ready', function () {
+    var posts = P.publishedPosts();
+    var cats = P.categoriesWithCount();
+
+    /* --- istatistikler --- */
+    var stats = P.qs('#heroStats');
+    if (stats) {
+      var totalRead = posts.reduce(function (a, p) { return a + P.readingTime(p.content); }, 0);
+      stats.innerHTML = [
+        stat(posts.length, 'Yazı'),
+        stat(cats.length, 'Kategori'),
+        stat(P.allTags().length, 'Etiket'),
+        stat(totalRead, 'Dakika okuma')
+      ].join('');
+    }
+
+    /* --- öne çıkan --- */
+    var featured = posts.filter(function (p) { return p.featured; });
+    var heroPick = featured[0] || posts[0] || null;
+
+    var heroCard = P.qs('#heroCard');
+    if (heroCard) {
+      if (!heroPick) {
+        heroCard.innerHTML = P.emptyState('Henüz yazı yok', 'İlk yazıyı oluşturarak arşivi başlatın.',
+          '<a class="btn btn--primary" href="create.html">İlk yazıyı yaz</a>');
+      } else {
+        heroCard.innerHTML = [
+          '<a class="hero-feature" href="post.html?slug=' + encodeURIComponent(heroPick.slug) + '">',
+          '<span class="hero-feature__media">',
+          heroPick.cover
+            ? '<img src="' + P.esc(heroPick.cover) + '" alt="' + P.esc(heroPick.title) + '">'
+            : '<span class="card-media__fallback">' + P.icon('sparkle', 34) + '</span>',
+          '</span>',
+          '<span class="hero-feature__body">',
+          '<span class="badge badge--accent">' + P.esc(P.getCategory(heroPick.category).name) + '</span>',
+          '<strong>' + P.esc(heroPick.title) + '</strong>',
+          '<span class="hero-feature__excerpt">' + P.esc(P.truncate(heroPick.excerpt || P.stripTags(heroPick.content), 130)) + '</span>',
+          '<span class="hero-feature__meta">' + P.icon('clock', 14) + P.esc(P.formatDate(heroPick.date)) + ' · ' + P.readingTime(heroPick.content) + ' dk okuma</span>',
+          '</span>',
+          '</a>'
+        ].join('');
+      }
+    }
+
+    /* --- son yazılar --- */
+    var latest = P.qs('#latestPosts');
+    if (latest) {
+      var list = posts.filter(function (p) { return !heroPick || p.slug !== heroPick.slug; }).slice(0, 6);
+      latest.innerHTML = list.length
+        ? list.map(function (p, i) { return P.postCard(p, i === 0 ? 'is-wide' : ''); }).join('')
+        : P.emptyState('Arşiv boş', 'Yayınlanan yazılar burada listelenir.', '<a class="btn btn--soft" href="create.html">Yazı oluştur</a>');
+    }
+
+    /* --- kategoriler --- */
+    var catHost = P.qs('#homeCategories');
+    if (catHost) {
+      catHost.innerHTML = cats.length ? cats.slice(0, 8).map(function (c) {
+        return [
+          '<a class="cat-card" href="category.html?cat=' + encodeURIComponent(c.slug) + '" data-reveal>',
+          '<span class="cat-card__icon">' + P.icon(c.icon || 'folder', 21) + '</span>',
+          '<h3>' + P.esc(c.name) + '</h3>',
+          '<p>' + P.esc(P.truncate(c.description || '', 74)) + '</p>',
+          '<span class="cat-card__count">' + c.count + ' yazı</span>',
+          '</a>'
+        ].join('');
+      }).join('') : P.emptyState('Kategori yok', 'category/ klasörüne kategori dosyaları ekleyin.');
+    }
+
+    /* --- etiketler --- */
+    var tagHost = P.qs('#homeTags');
+    if (tagHost) {
+      var tags = P.allTags().slice(0, 18);
+      tagHost.innerHTML = tags.length ? tags.map(function (t) {
+        return '<a class="tag" href="blog.html?tag=' + encodeURIComponent(t.tag) + '">' + P.esc(t.tag) + '<small>' + t.count + '</small></a>';
+      }).join('') : '<span class="muted">Etiket yok</span>';
+    }
+
+    /* --- nasıl çalışır sayıları --- */
+    var howHost = P.qs('#howStats');
+    if (howHost) {
+      howHost.textContent = posts.length + ' yazı · ' + P.num(cats.length) + ' kategori';
+    }
+
+    P.reveal();
+    P.initFancybox();
+  });
+
+  function stat(value, label) {
+    return '<div class="stat" data-reveal><b>' + P.num(value) + '</b><span>' + P.esc(label) + '</span></div>';
+  }
+})();
